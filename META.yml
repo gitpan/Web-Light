@@ -1,0 +1,28 @@
+---
+abstract: 'A light weight web framework'
+author:
+  - 'Michael Kroher <infrared@cpan.org>'
+build_requires:
+  ExtUtils::MakeMaker: 6.42
+configure_requires:
+  ExtUtils::MakeMaker: 6.42
+distribution_type: module
+generated_by: 'Module::Install version 0.91'
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: Web-Light
+no_index:
+  directory:
+    - inc
+    - t
+requires:
+  HTTP::Engine: 0.03
+  HTTP::Engine::Middleware: 0.18
+  Module::Find: 0.08
+  Module::Load: 0.16
+  perl: 5.8.9
+resources:
+  license: http://dev.perl.org/licenses/
+version: 0.02

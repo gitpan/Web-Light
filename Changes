@@ -1,5 +1,9 @@
 Revision history for Web-Light
 
-0.01    Date/time
-        First version, released on an unsuspecting world.
+0.02    01/20/2010
+        - Fixed some documentation
+        - Fixed undeclared variable warning (oops)
+
+0.01    01/19/2010
+        - First release.
 

@@ -2,7 +2,7 @@ package Web::Light;
 
 use warnings;
 use strict;
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 use 5.008009;
 use FindBin::Real;
 use Module::Find;
@@ -26,6 +26,7 @@ my $nproc;
 my $host;
 my $pid;
 my $log;
+
 GetOptions (
     "debug"       => \$debug,
     "create"      => \$create,
@@ -44,6 +45,10 @@ if ($help) {
     print qq(--debug \t run in debug mode\n);
     print qq(--create \t create local plugin directories and Root.pm\n);
     print qq(--interface \t specify interface (FCGI, ServerSimple)\n);
+    print qq(--interface FCGI:\n);
+    print qq(\t\toptions: --detach --nproc --pid --listen\n);
+    print qq(--interface ServerSimple:\n);
+    print qq(\t\toptions: --detach --host --port --pid --log\n);
     print qq(--host \t\t host to listen on (ServerSimple only)\n);
     print qq(--port \t\t specify port\n);
     print qq(--help \t\t this\n);
@@ -57,6 +62,8 @@ sub new {
     die "Subclass Web::Light. See perldoc Web::Light" if ($class eq __PACKAGE__);
 
     my %self = map { $_ } @_;
+
+    $self{MOUNT}   ||= '';
 
     $self{PLUGINS} ||= \@INC;
     $self{NOLOAD}  ||= [ ];
@@ -114,10 +121,7 @@ sub dispatch {
 
         if ($create) {
 
-            # Need this here so we can retrieve $class.
-            # I'm sure it'll work under any other
-            # sub that gets called from our blessed package
-            my ($class) = caller();
+            # Need this here so we can use $class.
             if (!-e "$Bin/$class") {
                 die $! if !mkdir("$Bin/$class",0755);
                 print "Created directory: $Bin/$class\n";
@@ -152,7 +156,7 @@ sub dispatch {
     if (@dispatch_errors) {
         print STDOUT "$_\n" for @dispatch_errors;
         exit;
-    }  # wasn't that fun?
+    }  
 
 
     my @method_errors = $self->method_match($self->{dispatch});
@@ -175,7 +179,7 @@ sub setup {
         if ($interface =~ /^(fcgi|fastcgi)$/i) {
             $interface = 'FCGI';
             print "[debug] FCGI interface\n" if $debug;
-            $detach ||= 1;
+            $detach ||= 0;
             print "[debug] FCGI detach => $detach\n" if $debug;
             $nproc  ||= 1;
             print "[debug] FCGI nproc => $nproc\n" if $debug;
@@ -200,7 +204,7 @@ sub setup {
             print "[debug] ServerSimple interface\n" if $debug;
             $host ||= '127.0.0.1';
             print "[debug] ServerSimple host => $host\n" if $debug;
-            $detach ||= 1;
+            $detach ||= 0;
             print "[debug] ServerSimple detach => $detach\n" if $debug;
             $pid    ||= "/tmp/$class\.pid";
             print "[debug] ServerSimple pidfile => $pid\n" if $debug;
@@ -264,7 +268,6 @@ sub setup {
             $mv->install('HTTP::Engine::Middleware::Static' => $args->{static} );
         }
     }
-    #$mv->install( %{ $args->{middleware} }) if exists $args->{middleware};
     $args->{engine} = $self->defaults if !exists $args->{engine};
     $args->{engine}{interface}{request_handler} = $mv->handler( sub { $self->handler(@_) }  );
     my $engine = HTTP::Engine->new( %{ $args->{engine}} );
@@ -281,7 +284,6 @@ sub handler {
 
     shift @path if lc $path[0] eq $self->{MOUNT};
 
-    # Root.pm from Catalyst .. yeah i know!
     my $plugin = defined($path[0]) ? lc $path[0] : 'root';
 
     my $sub    = defined($path[1]) ? lc $path[1] : 'default';
@@ -295,7 +297,8 @@ sub handler {
         req   => $req,
     };
 
-    # let's check to see if the plugin exists, and/or the method/sub exists too
+    # let's check to see if the plugin exists for the current requeset (/url),
+    # and the method exists too
     if (
         !exists( $self->{dispatch}{$plugin} ) or
         !$self->{dispatch}{$plugin}{plugin}->can($sub) or
@@ -414,11 +417,11 @@ sub createRootPlugin {
 }
 =head1 NAME
 
-Web::Light - Light weight web framework
+Web::Light - A light weight web framework
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =cut
 
@@ -449,7 +452,7 @@ Launch...
 =head1 Description 
 
 Web::Light is a light-weight web framework.  It's basically just a wrapper around 
-HTTP::Engine, and does some stuff to handle plugins.  If you are 
+HTTP::Engine and does some stuff to handle plugins.  If you are 
 looking for a more tested, developed, and supported web framework, consider using Catalyst.
 
 Web::Light by default launches a stand alone web server that you can connect to with your 
@@ -481,12 +484,19 @@ If you don't want to search @INC, and only want to use modules
 in your current directory, an example of your directory
 structure might look like this:
 
+
     $ ls
 
     -rw-r--r--    myapp.pl
     drwxr-xr-x    MyApp/
     drwxr-xr-x    MyApp/Plugin
     -rw-r--r--    MyApp/Plugin/Root.pm
+
+    
+    # then for PLUGINS:
+    new(
+        PLUGINS => [ './' ],
+    );
 
 
 
@@ -634,8 +644,7 @@ be 'default'.
 
 =head2 stash( %args )
 
-Just a simple hash to pass around stuff to your plugins. Yes, I
-"borrowed" this from Catalyst. Catalyst rocks, what can I say?
+Just a simple hash to pass around stuff to your plugins.
 
     use MyDatabase::Main;  # your DBIx::Class
     use Template;
@@ -738,7 +747,7 @@ Handler subroutine sent to HTTP::Engine
 
 =head2 createRootPlugin()
 
-Creates the default *::Plugin::Root plugin when called with:
+Creates the default YourApp::Plugin::Root plugin when called with:
 
     $ perl myapp.pl --create
 
@@ -748,43 +757,41 @@ Creates the default *::Plugin::Root plugin when called with:
 You can name your plugins anything, but in our example, 
 the plugins need to be under MyApp::*
 
-    $ mkdir -p MyApp/Foo
+     $ mkdir -p MyApp/Foo
 
-    # vi MyApp/Foo/Something.pm
+     $ vi MyApp/Foo/Something.pm
+
+A minimal plugin:
+    
+    package MyApp::Foo::Something;
+
+    sub default {
+        return "Hello World!";
+    }
+    1;
+
+More detailed:
     
     package MyApp::Foo::Something;
     
     use strict;
     use warnings;
 
-    # default must exist
     sub default {
 
         my ($self,$app) = @_;
-        
-        # $app has everything!
+        my $req         = $app->{req};          # perldoc HTTP::Engine::Request
+        my $param       = $req->paramenters;    # GET/POST paramenters
+        my $session     = $req->session;        # perldoc HTTP::Session
+        my $tt          = $app->{stash}{tt};    # Template-Toolkit from your stash
+        my $schema      = $app->{stash}{db};    # your DBIx::Class from your stash
 
-        # perldoc HTTP::Engine::Request
-        my $req     = $app->{req};
-        
-        # GET/POST paramenters
-        my $param   = $req->paramenters;
-        
-        # perldoc HTTP::Session
-        my $session = $req->session;
-
-        my $tt   =  $app->{stash}{tt}; # using Template-Toolkit?
-    
-        my $schema = $app->{stash}{db};
-
-        # you can return something:
-        return "hello world!";
-
-        # or return your template 
         $vars = {
-            username => $session->get("username");
+            message => "Hello World!",
         };
-        $tt->process('index.tt', $vars, \my $out) or return $tt->error();
+        $tt->process('index.tt', $vars, \my $out) 
+            or return $tt->error();
+        
         return $out;
     }
     
@@ -806,9 +813,30 @@ To use this plugin, make sure you dispatch it to a URL...
 
 Then go to http://localhost/newplugin to see it in action
 
+=head1 Benchmarks
+
+I've done some quick benchmarking, just to get some frame 
+of reference.
+
+    # P3 1.4GHz 
+    # Document Length: 696 bytes
+    # ab -n 100 -c 2 http://localhost/
+    
+    
+    FastCGI interface, and Apache handling static content.
+    --->   Requests per second:    171.53 [#/sec] (mean)
+
+    ServerSimple interface, serving all content.
+    --->   Requests per second:    180.51 [#/sec] (mean)
+ 
+
+    *shrug*  I'll play around some more.  Maybe not.
+
+
+
 =head1 AUTHOR
 
-Michael Kroher, C<< <mkroher at gmail.com> >>
+Michael Kroher, C<< <infrared at cpan.org> >>
 
 =head1 BUGS
 
@@ -856,9 +884,7 @@ L<http://search.cpan.org/dist/Web-Light/>
 
 =head1 TO-DO
 
-Not much. When I personally need more features or control,
-I use Catalyst.
-
+Not sure yet.
 
 =head1 COPYRIGHT & LICENSE
 
